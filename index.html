@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>irTuner</title>
+    <style>
+        body {
+            background-color: #121212;
+            color: #00bcd4;
+            text-align: center;
+            font-family: 'Arial', sans-serif;
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            height: 100vh;
+        }
+        h1 {
+            color: #00bcd4;
+            margin-bottom: 20px;
+        }
+        .frequency, .note {
+            font-size: 32px;
+            margin-top: 20px;
+            color: #00bcd4;
+        }
+        button {
+            background-color: #00bcd4;
+            color: white;
+            padding: 12px 24px;
+            border: none;
+            border-radius: 5px;
+            font-size: 18px;
+            margin-top: 20px;
+            cursor: pointer;
+            transition: background-color 0.3s, transform 0.2s;
+        }
+        button:hover {
+            background-color: #0097a7;
+            transform: scale(1.05);
+        }
+        .controls {
+            margin-top: 30px;
+        }
+        input[type="number"] {
+            margin-top: 14px;
+            width: 80px;
+            padding: 10px;
+            border-radius: 5px;
+            border: 1px solid #00bcd4;
+            background-color: #1f1f1f;
+            color: #00bcd4;
+            font-size: 16px;
+            outline: none;
+            text-align: center;
+        }
+        .note-display {
+            margin-top: 50px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Fa sori Tuner</h1>
+    <div class="controls">
+        <label for="freq">Set Tuning Frequency (385 - 600 Hz): </label>
+        <input type="number" id="freq" value="440" min="385" max="600" step="1"> Hz
+    </div>
+    <div class="controls">
+        <button onclick="startTuner()">Start Tuner</button>
+        <button onclick="stopTuner()">Stop Tuner</button>
+    </div>
+    <div class="frequency">Frequency: <span id="freqDisplay">--</span> Hz</div>
+    <div class="note-display">
+        <div class="note">Note: --</div>
+    </div>
+
+    <script>
+        let audioContext, analyser, microphone, javascriptNode;
+        let isRunning = false;
+        let tuningFrequency = 440;
+
+        const notes = [
+            { note: "دو", frequency: 261.63 },
+            { note: "دو بمل", frequency: 254.56 },
+            { note: "دو کرن", frequency: 247.05 },
+            { note: "دو دیز", frequency: 277.18 },
+            { note: "ر", frequency: 293.66 },
+            { note: "ر بمل", frequency: 286.32 },
+            { note: "ر کرن", frequency: 279.50 },
+            { note: "ر دیز", frequency: 311.13 },
+            { note: "می", frequency: 329.63 },
+            { note: "می بمل", frequency: 316.17 },
+            { note: "می کرن", frequency: 304.00 },
+            { note: "می دیز", frequency: 349.23 },
+            { note: "فا", frequency: 349.23 },
+            { note: "فا بمل", frequency: 335.00 },
+            { note: "فا دیز", frequency: 369.99 },
+            { note: "سل", frequency: 392.00 },
+            { note: "سل بمل", frequency: 377.00 },
+            { note: "سل کرن", frequency: 370.00 },
+            { note: "سل دیز", frequency: 415.30 },
+            { note: "لا", frequency: 440.00 },
+            { note: "لا بمل", frequency: 415.00 },
+            { note: "لا کرن", frequency: 430.00 },
+            { note: "لا دیز", frequency: 466.16 },
+            { note: "سی", frequency: 493.88 },
+            { note: "سی بمل", frequency: 478.00 },
+            { note: "سی کرن", frequency: 467.00 },
+            { note: "دو سری", frequency: 277.18 },
+            { note: "ر سری", frequency: 311.13 },
+            { note: "می سری", frequency: 355.00 },
+            { note: "فا سری", frequency: 370.00 },
+            { note: "سل سری", frequency: 415.30 },
+            { note: "لا سری", frequency: 466.16 },
+            { note: "سی سری", frequency: 523.25 }
+        ];
+
+        function startTuner() {
+            if (isRunning) return;
+            isRunning = true;
+
+            audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            analyser = audioContext.createAnalyser();
+            analyser.fftSize = 2048;
+            analyser.smoothingTimeConstant = 0.85;
+
+            navigator.mediaDevices.getUserMedia({ audio: true })
+                .then(stream => {
+                    microphone = audioContext.createMediaStreamSource(stream);
+                    microphone.connect(analyser);
+                    javascriptNode = audioContext.createScriptProcessor(2048, 1, 1);
+                    javascriptNode.connect(audioContext.destination);
+                    javascriptNode.onaudioprocess = analyzeFrequency;
+                })
+                .catch(err => console.error("Microphone access denied.", err));
+        }
+
+        function stopTuner() {
+            if (!isRunning) return;
+            isRunning = false;
+            microphone.disconnect();
+            javascriptNode.disconnect();
+            audioContext.close();
+        }
+
+        function analyzeFrequency() {
+            const buffer = new Float32Array(analyser.fftSize);
+            analyser.getFloatTimeDomainData(buffer);
+            
+            const frequency = autoCorrelate(buffer, audioContext.sampleRate);
+            if (frequency !== -1) {
+                document.getElementById("freqDisplay").innerText = frequency.toFixed(2);
+                const note = findClosestNote(frequency);
+                document.querySelector(".note").innerText = `Note: ${note}`;
+            } else {
+                document.getElementById("freqDisplay").innerText = "--";
+                document.querySelector(".note").innerText = "Note: --";
+            }
+        }
+
+        function findClosestNote(frequency) {
+            let closestNote = notes[0];
+            let minDifference = Math.abs(frequency - closestNote.frequency);
+            for (const note of notes) {
+                const difference = Math.abs(frequency - note.frequency);
+                if (difference < minDifference) {
+                    closestNote = note;
+                    minDifference = difference;
+                }
+            }
+            return closestNote.note;
+        }
+
+        function autoCorrelate(buffer, sampleRate) {
+            let SIZE = buffer.length;
+            let sumOfSquares = 0;
+            for (let i = 0; i < SIZE; i++) {
+                let val = buffer[i];
+                sumOfSquares += val * val;
+            }
+            let rootMeanSquare = Math.sqrt(sumOfSquares / SIZE);
+            if (rootMeanSquare < 0.01) return -1;
+
+            let r1 = 0, r2 = SIZE - 1, threshold = 0.2;
+            for (let i = 0; i < SIZE / 2; i++) {
+                if (Math.abs(buffer[i]) < threshold) { r1 = i; break; }
+            }
+            for (let i = 1; i < SIZE / 2; i++) {
+                if (Math.abs(buffer[SIZE - i]) < threshold) { r2 = SIZE - i; break; }
+            }
+            buffer = buffer.slice(r1, r2);
+            SIZE = buffer.length;
+
+            let c = new Array(SIZE).fill(0);
+            for (let i = 0; i < SIZE; i++) {
+                for (let j = 0; j < SIZE - i; j++) {
+                    c[i] += buffer[j] * buffer[j + i];
+                }
+            }
+            let d = 0; while (c[d] > c[d + 1]) d++;
+            let maxValue = -1, maxIndex = -1;
+            for (let i = d; i < SIZE; i++) {
+                if (c[i] > maxValue) {
+                    maxValue = c[i];
+                    maxIndex = i;
+                }
+            }
+            return sampleRate / maxIndex;
+        }
+
+        document.getElementById('freq').addEventListener('input', function() {
+            tuningFrequency = parseFloat(this.value);
+            document.querySelector(".note").innerText = `Tuning Frequency set to: ${tuningFrequency} Hz`;
+        });
+    </script>
+</body>
+</html>
